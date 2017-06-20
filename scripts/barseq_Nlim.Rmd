@@ -22,13 +22,15 @@ head(index)
 ```
 
 ###Counts tables, melted
+
 Here we make a list of data.frames, where each data.frame is just the counts table of a different Barnone run, with each a different mismatch allowed.
+
 ```{r,cache=TRUE}
-allFileNames <-  dir(datadir)[grepl("counts.*txt", dir(datadir))]
+allFileNames <- list.files(path="../data/",pattern=".*counts.txt",full.names=T)
 rawCountsList <- list()
 for (fz in allFileNames) {
   numberMismatches <- sub(".*(\\dMM).*","\\1",fz)
-  rawCountsList[[numberMismatches]] <- read.table(paste0(datadir,fz),header=T)
+  rawCountsList[[numberMismatches]] <- read.table(fz,header=T)
 }
 rawCountsList[[1]][1:5,1:5]
 
@@ -45,10 +47,10 @@ for (MM in names(rawCountsList)) {
  #ratio of certain strain counts over total counts in each sample
   mcounts$RelativeCounts <- mcounts$Counts / mcounts$TotalCounts
   mcounts<-subset(mcounts, mcounts$SampleNum %in% index$SampleIndex)
-  mcounts[,ncol(mcounts)+1:7] <- index[mcounts$SampleNum,
-    c("Index","LibraryName","SampleIndex","StarvingMedia","Replicate","SamplingTime","PrimerIndex")]
+  mcounts[,ncol(mcounts)+1:6] <- index[mcounts$SampleNum,
+    c("LibraryName","SampleIndex","StarvingMedia","Replicate","SamplingTime","PrimerIndex")]
   datar[[MM]] <- mcounts[,c("Strain","SampleNum","Tag",
-      "Index","LibraryName","SampleIndex","StarvingMedia","Replicate","SamplingTime","PrimerIndex",
+      "LibraryName","SampleIndex","StarvingMedia","Replicate","SamplingTime","PrimerIndex",
       "Counts","RelativeCounts")]
 }
 
@@ -56,14 +58,15 @@ for (MM in names(rawCountsList)) {
 datar[[1]][1:5,1:10]
 #select my data from the whole sequencing library mixture
 
-mydatar<-list()
-for (MM in names(datar)) {
-  mydatar[[MM]] <- subset(datar[[MM]],datar[[MM]]$SampleNum%in%
-  index$SampleIndex)
-}
-mydatar[[1]][1:5,1:10]
-```
+#mydatar<-list()
+#for (MM in names(datar)) {
+#  mydatar[[MM]] <- subset(datar[[MM]],datar[[MM]]$SampleNum%in%
+#  index$SampleIndex)
+#}
+#mydatar[[1]][1:5,1:10]
 
+mydatar <- datar 
+```
 
 #Prelim QC analysis - which libraries are good?
 #Mismatch parameter?
@@ -74,98 +77,62 @@ mydatar[[1]][1:5,1:10]
 #Presumably there’s only real barcodes in the library, so I should increase the parameter to the point where I get more reads per strain, but not at the point where strains start to canabalize counts from other strains.
 summedCounts <- list()
 for (MM in names(mydatar)) {
-  summedCounts[[MM]] <- aggregate(Counts~Strain,FUN=sum,
+  summedCounts[[MM]] <- aggregate(Counts~Strain+Tag,FUN=sum,
       data=subset(mydatar[[MM]], Replicate!=""))
 }
 allSummedCounts <- data.table::rbindlist(summedCounts,idcol=T)
-dallSummedCounts <- dcast(data=allSummedCounts,Strain~.id,value.var="Counts")
+dallSummedCounts <- dcast(data=allSummedCounts,Strain+Tag~.id,value.var="Counts")
 
 g <- ggplot(dallSummedCounts)+
+  facet_wrap(~Tag)+
   scale_y_log10()+scale_x_log10()+theme_bw()+
   geom_point(size=0.1)
 g+aes(x=`0MM`,y=`1MM`)
 g+aes(x=`1MM`,y=`2MM`)
 
-pdf("strain counts distribution",width=8,height=6)
-dallSummedCounts_m<-melt(dallSummedCounts, id.var="Strain")
-ggplot(dallSummedCounts_m,aes(x=value))+
-      theme_bw()+scale_x_log10()+
-      ylab("Strain counts distribution")+
-      geom_density(data=subset(dallSummedCounts_m,variable=="0MM"), aes(colour="0MM"))+
-      geom_density(data=subset(dallSummedCounts_m,variable=="1MM"), aes(colour="1MM"))+
-      geom_density(data=subset(dallSummedCounts_m,variable=="2MM"), aes(colour="2MM"))
-dev.off()
+dallSummedCounts_m<-melt(dallSummedCounts, id.var=c("Strain","Tag"))
+
+ggplot(dallSummedCounts_m)+aes(x=value,col=variable)+
+  theme_bw()+scale_x_log10()+
+  ylab("Strain counts distribution")+
+  stat_bin(position="identity",geom="line",bins=200)+
+  facet_grid(variable~Tag)
 
 
-g <- ggplot(dallSummedCounts)+theme_bw()+
-  scale_x_log10()+geom_histogram(bins=50)
-g+aes(x=`0MM`)
-g+aes(x=`1MM`)
-g+aes(x=`2MM`)
 
-#(interpretation)
 
-#And what about the mismatches of sample indicies?
 
-summedBySample <- list()
-for (MM in names(mydatar)) {
-  summedBySample[[MM]] <- aggregate(Counts~SampleNum+Tag,FUN=sum,
-      data=mydatar[[MM]])
-}
-
-#
-allSummedBySample <- data.table::rbindlist(summedBySample,idcol=T)
-allSummedBySample$Used <- ifelse(allSummedBySample$SampleNum%in%index$SampleIndex,"Yep","Nope")
-#mySummedSample<- subset(allSummedBySample,allSummedBySample$SampleNum%in%
- # paste("Sample",rownames(index),sep=""))
-##this step seems not necessary for the samples mixed from different experiment
-#only plot my sample
-allSummedBySampleUP<-subset(allSummedBySample, allSummedBySample$Tag == "UP")
-######################################seperatly analyze the sample in order to visualize the 
-allSummedBySampleUP1_60<-subset(allSummedBySampleUP, allSummedBySampleUP$SampleNum %in% 1:60)
-######################################
-ggplot(allSummedBySampleUP)+theme_bw()+
-  aes(x=SampleNum,y=log10(Counts),col=Used)+facet_grid(.id~Tag)+
-  geom_point()+#scale_y_log10()+
-  theme(axis.text.x=element_text(angle=90,size=5,face="bold"),legend.position="top")
-allSummedBySampleDOWN<-subset(allSummedBySample, allSummedBySample$Tag == "DOWN")
-ggplot(allSummedBySampleDOWN)+theme_bw()+
-  aes(x=SampleNum,y=log10(Counts),col=Used)+facet_grid(.id~Tag)+
-  geom_point()+#scale_y_log10()+
-  theme(axis.text.x=element_text(angle=90,size=5,face="bold"),legend.position="top")
 #saving files
 for (MM in names(mydatar)) {
-  write.csv(file=paste0("N_lim4",MM,"Melted.csv"),
+  write.csv(file=paste0("../tmp/N_lim4",MM,"Melted.csv"),
     x=subset(mydatar[[MM]],Replicate!=""))
 }
 for (MM in names(mydatar)) {
-  write.csv(file=paste0("N_lim4",MM,".csv"),
+  write.csv(file=paste0("../tmp/N_lim4",MM,".csv"),
     x=dcast(subset(mydatar[[MM]],Replicate!=""),#,"Starvation","SamplingIndex","Replicate","SamplingTime","BarTag"
       Strain+Tag~SampleNum+LibraryName+StarvingMedia+SampleIndex+Replicate+SamplingTime,
       value.var="Counts"))
 }
+
 ```
 
 
 ```{r,cache=TRUE}
-useMM <- "0MM"
-#sdat <- subset(mydatar[[useMM]], Replicate!="")
-sdat <- subset(mydatar[[useMM]], SampleNum %in% index$SampleIndex)
-sdat[,-c((-1:0)+ncol(sdat))] <- lapply(sdat[,-c((-1:0)+ncol(sdat))],
-  factor)
+useMM <- "2MM"
+sdat <- subset(mydatar[[useMM]])
+sdat[,c(2:5,7,9)] <- lapply(sdat[,c(2:5,7,9)],factor)
 
 ggplot(sdat)+
-  aes(x=SampleNum,
-    col=LibraryName:Replicate:SamplingTime,weight=Counts)+
-  facet_grid(Tag~.)+geom_point(stat="count")+
+  aes(x=factor(SamplingTime),
+    col=LibraryName:Replicate:factor(SamplingTime),weight=Counts)+
+  facet_grid(Tag~Replicate+LibraryName)+geom_point(stat="count")+
   theme(axis.text.x=element_text(angle=90))+
   scale_y_log10()
 
 ggplot(sdat)+
-  aes(x=SampleNum:Tag,y=Counts)+
+  aes(x=Replicate:factor(SamplingTime),y=Counts)+
   geom_boxplot()+scale_y_log10()+
-  facet_grid(LibraryName~SamplingTime+Replicate,
-    scales="free_x",space="free")+
+  facet_wrap(~LibraryName+Tag,scales="free_x")+
   theme(axis.text.x=element_text(angle=90))
 
 #Indexing numeric data: values will be adjusted so they are equal to each other in a given starting time period.
@@ -177,34 +144,55 @@ nozerosdat<-subset(sdat,sdat$Counts>0)
 ```
 
 ## add up samples UP and DOWN tag
+
 ```{r}
-zeroMM<-subset(allSummedBySample, allSummedBySample$.id=="0MM")
-zeroMM_sum<-aggregate(zeroMM$Counts ~ zeroMM$SampleNum, FUN = sum)
+#zeroMM<-subset(allSummedBySample, allSummedBySample$.id=="0MM")
+#zeroMM_sum<-aggregate(zeroMM$Counts ~ zeroMM$SampleNum, FUN = sum)
 ```
 
 
 ### PCA analysis
 ```{r,fig.height=10,cache=TRUE}
-Sample_0MM<-allSummedBySample[allSummedBySample$Counts>5e4 & allSummedBySample$.id=="0MM"]
-filterData<-subset(sdat, sdat$SampleNum %in% Sample_0MM$SampleNum)
-ssdat<-subset(sdat,sdat$Counts >0 & sdat$SampleNum %in% Sample_0MM$SampleNum)
+#Sample_2MM<-allSummedBySample[allSummedBySample$Counts>5e4 & allSummedBySample$.id=="2MM"]
+filterData<-subset(sdat)#, sdat$SampleNum %in% Sample_2MM$SampleNum)
+ssdat<-subset(sdat,sdat$Counts >0 )
 dsdat <- dcast(Strain~SampleNum+Tag+LibraryName+Replicate+SamplingTime+StarvingMedia,
   data=ssdat,value.var="Counts")
 dsdat[is.na(dsdat)] <- 0
 rownames(dsdat) <- dsdat[,1]
 dsdat <- dsdat[,-1]
-pc <- prcomp(t(dsdat))
-pz <- data.frame(pc$x)
-pz[,ncol(pz)+(1:6)] <- colsplit(rownames(pz),"_",
+
+upc <- prcomp(t(dsdat[,grepl("UP",names(dsdat))]),center=T,scale.=F)
+upz <- data.frame(upc$x)
+upz[,ncol(upz)+(1:6)] <- colsplit(rownames(upz),"_",
   names=c("SampleNum","Tag","LibraryName","Replicate","SamplingTime","StarvingMedia"))
-pz[ncol(pz)-(0:5)] <- lapply(pz[ncol(pz)-(0:5)],factor)
+upz[ncol(upz)-(0:5)] <- lapply(upz[ncol(upz)-(0:5)],factor)
+
+dpc <- prcomp(t(dsdat[,grepl("DOWN",names(dsdat))]),center=T,scale.=F)
+dpz <- data.frame(dpc$x)
+dpz[,ncol(dpz)+(1:6)] <- colsplit(rownames(dpz),"_",
+  names=c("SampleNum","Tag","LibraryName","Replicate","SamplingTime","StarvingMedia"))
+dpz[ncol(dpz)-(0:5)] <- lapply(dpz[ncol(dpz)-(0:5)],factor)
 
 ######Plot PCA vs UP and DN tag
-g <- ggplot(pz)+geom_point()
-g+aes(x=PC1,y=PC2,col=Tag)
-g+facet_wrap(~Tag,scales="free")+
-  aes(x=PC1,y=PC2,col=LibraryName:SamplingTime:Replicate)+
-  theme(legend.position="bottom")
+g <- ggplot(pz)+geom_point()+theme(legend.position="bottom")
+g+aes(x=PC1,PC2)
+
+g+facet_wrap(~Tag+Replicate,scales="free")+
+  aes(x=PC1,y=PC2,col=LibraryName:SamplingTime)
+
+g+facet_wrap(~Tag+LibraryName,scales="free")+
+  aes(x=PC1,y=PC2,col=SamplingTime:Replicate)
+
+###
+
+gu <- ggplot(upz)+geom_point()+theme(legend.position="bottom")
+gu+facet_wrap(~Tag+Replicate,scales="free")+
+  aes(x=PC1,y=PC2,col=LibraryName:SamplingTime)
+
+gd <- ggplot(dpz)+geom_point()+theme(legend.position="bottom")
+gd+facet_wrap(~Tag+Replicate,scales="free")+
+  aes(x=PC1,y=PC2,col=LibraryName:SamplingTime)
 
 ########Plot PCA seperated by tag and library
 g <- ggplot(pz)+
