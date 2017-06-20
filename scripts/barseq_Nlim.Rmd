@@ -1,37 +1,22 @@
 ---
 title: "Barseq QC"
 author: "Siyu Sun"
-date: "May 12, 2016"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-###load packages
-
-install.packages("ggplot2")
-install.packages("data.table")
-install.packages("ggrepel")
-
+### load packages
 
 ```{r,cache=TRUE}
 library(ggplot2)
 library(reshape2)
 library(ggrepel)
-#require(data.table)
 ```
 
+### read in index file with pre-known information (self made-varied depends on experiment setup)
 
-###setup working directory
 ```{r,cache=TRUE}
-datadir <- "~/Desktop/Lab\ research/Barseq_SGA/N-lim-4mutants/seqdata/"
-dir(datadir)
-```
-
-###read in index file with pre-known information (self made-varied depends on experiment setup)
-```{r,cache=TRUE}
-index <- read.csv(paste0(datadir, "GeneInter_N_lim.csv"))
+index <- read.csv("../data/GeneInter_N_lim.csv")
 rownames(index)<-index$SampleIndex
 head(index)
 ```
